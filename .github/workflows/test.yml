@@ -1,0 +1,89 @@
+name: Test Statusline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './statusline'
+          severity: warning
+
+  syntax-check:
+    name: Bash Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check bash syntax
+        run: |
+          find statusline -name "*.sh" -exec bash -n {} \;
+          find helpers -name "*.sh" -exec bash -n {} \;
+          bash -n install.sh
+
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install jq bc
+
+      - name: Test installer help
+        run: ./install.sh --help
+
+      - name: Test statusline
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          echo '{"workspace":{"current_dir":"'"$WORKSPACE_DIR"'"},"model":{"display_name":"Test Model"}}' | \
+            /opt/homebrew/bin/bash statusline/statusline.sh 2>&1 | head -10
+
+  test-ubuntu:
+    name: Test on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get install -y jq bc
+
+      - name: Test installer
+        run: ./install.sh --profile=minimal --no-interactive
+
+      - name: Test statusline
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
+        run: |
+          echo '{"workspace":{"current_dir":"'"$WORKSPACE_DIR"'"},"model":{"display_name":"Test Model"}}' | \
+            ~/.claude/statusline/statusline.sh 2>&1 | head -10
+
+  test-docker:
+    name: Test in Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: docker build -t statusline-test -f docker/Dockerfile.test .
+
+      - name: Run tests in container
+        run: |
+          docker run --rm statusline-test /bin/bash -c "
+            cd /home/testuser/statusline-project && \
+            ./install.sh --profile=minimal --no-interactive && \
+            echo '{\"workspace\":{\"current_dir\":\"/home/testuser\"},\"model\":{\"display_name\":\"Test\"}}' | \
+              /home/testuser/.claude/statusline/statusline.sh 2>&1 | head -10
+          "

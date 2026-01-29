@@ -1,0 +1,15 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    bash curl git jq bc coreutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create test user
+RUN useradd -m -s /bin/bash testuser
+USER testuser
+WORKDIR /home/testuser
+
+# Copy statusline for testing
+COPY --chown=testuser:testuser . /home/testuser/statusline-project
+
+CMD ["/bin/bash"]

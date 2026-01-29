@@ -1,0 +1,30 @@
+# Cache files
+.Config.cache.sh
+.Config.checksum
+*.cache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/settings.json
+.idea/
+
+# Local config (personal settings)
+.local/
+*.local.md
+
+# Test artifacts
+*.log
+test-output/
+
+# Node modules (if using npm for dev tools)
+node_modules/
+
+# Build artifacts
+dist/
+build/

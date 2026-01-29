@@ -1,0 +1,19 @@
+#!/bin/bash
+# Ultra-quick usage update
+# Usage: u 60 25 3h
+# Or: u (interactive)
+claude_dir="${PAI_DIR:-$HOME/.claude}"
+cache_file="$claude_dir/usage-cache.json"
+
+if [ $# -ge 2 ]; then
+    s="$1"; w="$2"; r="${3:-}"
+else
+    read -p "Session%: " s
+    read -p "Weekly%: " w
+    read -p "Reset (e.g., 3h): " r
+fi
+
+cat > "$cache_file" << CACHE
+{"session_percent":${s:-0},"weekly_percent":${w:-0},"session_reset":"${r}","weekly_reset":"","timestamp":$(date +%s)}
+CACHE
+echo "✓ ${s}% session, ${w}% weekly"

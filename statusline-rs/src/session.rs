@@ -28,6 +28,12 @@ pub fn from_stdin(data: &StdinData) -> SessionInfo {
         if info.model_display.is_empty() {
             info.model_display = capitalize_first(&info.model_short);
         }
+        // Append version from model ID if display name lacks it
+        if !info.model_display.is_empty() && !info.model_display.chars().any(|c| c.is_ascii_digit()) {
+            if let Some(ver) = extract_model_version(&info.model) {
+                info.model_display = format!("{} {}", info.model_display, ver);
+            }
+        }
     }
 
     // CC version from stdin JSON
@@ -93,5 +99,38 @@ fn capitalize_first(s: &str) -> String {
     match chars.next() {
         None => String::new(),
         Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+/// Extract model version from model ID (e.g., "claude-opus-4-6" -> "4.6").
+fn extract_model_version(model_id: &str) -> Option<String> {
+    let lower = model_id.to_lowercase();
+
+    // Find position after the model family name
+    let start_pos = if let Some(pos) = lower.find("opus") {
+        pos + 4 // "opus".len()
+    } else if let Some(pos) = lower.find("sonnet") {
+        pos + 6 // "sonnet".len()
+    } else if let Some(pos) = lower.find("haiku") {
+        pos + 5 // "haiku".len()
+    } else {
+        return None;
+    };
+
+    // Extract the part after the family name
+    let remainder = &model_id[start_pos..];
+
+    // Split by '-' and collect numeric segments
+    let numeric_parts: Vec<&str> = remainder
+        .split('-')
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+        .take(2) // Take first two numeric segments (major.minor)
+        .collect();
+
+    // Need at least 2 numeric segments for version
+    if numeric_parts.len() >= 2 {
+        Some(format!("{}.{}", numeric_parts[0], numeric_parts[1]))
+    } else {
+        None
     }
 }

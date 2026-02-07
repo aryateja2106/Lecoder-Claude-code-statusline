@@ -28,10 +28,16 @@ struct StatusData {
     containers: containers::ContainerInfo,
     worktrees: worktrees::WorktreeInfo,
     teams: teams::TeamsInfo,
-    /// Lines added from stdin cost data
+    /// Session cumulative lines added (from stdin cost data)
     lines_added: Option<u64>,
-    /// Lines removed from stdin cost data
+    /// Session cumulative lines removed (from stdin cost data)
     lines_removed: Option<u64>,
+    /// Session cost in USD
+    cost_usd: Option<f64>,
+    /// Session duration in ms
+    duration_ms: Option<u64>,
+    /// Agent name (when running with --agent)
+    agent_name: Option<String>,
 }
 
 fn main() {
@@ -70,6 +76,9 @@ fn collect_all(cwd: &PathBuf, stdin: &stdin_data::StdinData) -> StatusData {
     // Cost data from stdin
     let lines_added = stdin.cost.as_ref().and_then(|c| c.total_lines_added);
     let lines_removed = stdin.cost.as_ref().and_then(|c| c.total_lines_removed);
+    let cost_usd = stdin.cost.as_ref().and_then(|c| c.total_cost_usd);
+    let duration_ms = stdin.cost.as_ref().and_then(|c| c.total_duration_ms);
+    let agent_name = stdin.agent.as_ref().and_then(|a| a.name.clone());
 
     // Spawn threads for I/O-bound modules
     let tx_git = tx.clone();
@@ -121,6 +130,9 @@ fn collect_all(cwd: &PathBuf, stdin: &stdin_data::StdinData) -> StatusData {
         teams: teams::TeamsInfo::default(),
         lines_added,
         lines_removed,
+        cost_usd,
+        duration_ms,
+        agent_name,
     };
 
     for (name, value) in rx.iter() {
@@ -211,11 +223,16 @@ fn format_line1(theme: &Theme, data: &StatusData, cwd: &PathBuf) -> String {
     }
 }
 
-/// Line 2: 🧠 Model │ 📄 +N • -N │ CC:version │ Ctx: pct%
+/// Line 2: 🧠 Model │ 📄 +N • -N │ CC:version │ Ctx: pct% │ $cost │ duration
 fn format_line2(cfg: &Config, theme: &Theme, data: &StatusData) -> String {
     let r = theme.reset;
     let sep = format!(" {}\u{2502}{} ", theme.dim, r); // │ separator
     let mut parts: Vec<String> = Vec::new();
+
+    // Agent name prefix (if running as named agent)
+    if let Some(ref agent) = data.agent_name {
+        parts.push(format!("{}@{}{}", theme.yellow, agent, r));
+    }
 
     // Model with emoji
     let model_emoji = model_emoji(&data.session.model_short, cfg);
@@ -224,7 +241,7 @@ fn format_line2(cfg: &Config, theme: &Theme, data: &StatusData) -> String {
         theme.cyan, model_emoji, data.session.model_display, r
     ));
 
-    // Lines added/removed (from stdin cost data or git)
+    // Lines added/removed (from stdin cost data — cumulative session totals)
     let added = data.lines_added.unwrap_or(0);
     let removed = data.lines_removed.unwrap_or(0);
     if added > 0 || removed > 0 {
@@ -261,6 +278,23 @@ fn format_line2(cfg: &Config, theme: &Theme, data: &StatusData) -> String {
                 theme.green
             };
             parts.push(format!("{}Ctx: {:.0}%{}", color, pct, r));
+        }
+    }
+
+    // Session cost
+    if let Some(cost) = data.cost_usd {
+        if cost > 0.0 {
+            parts.push(format!("{}${:.2}{}", theme.yellow, cost, r));
+        }
+    }
+
+    // Session duration
+    if let Some(ms) = data.duration_ms {
+        let secs = ms / 1000;
+        let mins = secs / 60;
+        let s = secs % 60;
+        if mins > 0 {
+            parts.push(format!("{}m{}s", mins, s));
         }
     }
 
@@ -347,28 +381,25 @@ fn format_line3(theme: &Theme, data: &StatusData) -> String {
     major_parts.join(&sep)
 }
 
-/// Line 4: 🌳 branch [N worktrees] + containers + teams
+/// Line 4+: Worktrees (each on own line) + containers + teams
 fn format_line4(theme: &Theme, data: &StatusData) -> String {
     let r = theme.reset;
-    let mut parts: Vec<String> = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
 
-    // Worktrees with branch
-    if !data.worktrees.worktrees.is_empty() {
-        let branch_name = data
-            .git
-            .as_ref()
-            .map(|g| g.branch.as_str())
-            .unwrap_or("?");
-        parts.push(format!(
-            "{}\u{1f333} {} [{} worktrees]{}",
-            theme.green,
-            branch_name,
-            data.worktrees.worktrees.len(),
-            r
-        ));
+    // Worktrees — each gets its own line with name, branch, and path
+    for wt in &data.worktrees.worktrees {
+        let branch_str = wt
+            .branch
+            .as_deref()
+            .map(|b| format!(" {}[{}]{}", theme.cyan, b, r))
+            .unwrap_or_default();
+        lines.push(format!(
+            "{}\u{1f333} {}{} {}{}{}",
+            theme.green, wt.name, r, theme.dim, wt.path, r
+        ) + &branch_str);
     }
 
-    // Docker containers
+    // Docker containers — show all with status and stats
     if !data.containers.containers.is_empty() {
         let container_strs: Vec<String> = data
             .containers
@@ -377,25 +408,39 @@ fn format_line4(theme: &Theme, data: &StatusData) -> String {
             .map(|c| {
                 let color = if c.status == "running" {
                     theme.green
+                } else if c.status == "exited" {
+                    theme.dim
                 } else {
                     theme.red
                 };
-                format!("{}{}: {}{}", color, c.name, c.status, r)
+                let mut s = format!("{}{}{}", color, c.name, r);
+                // Show status for non-running containers
+                if c.status != "running" {
+                    s.push_str(&format!(" {}{}{}", theme.dim, c.status, r));
+                }
+                // Show stats for running containers
+                if let Some(cpu) = c.cpu_percent {
+                    s.push_str(&format!(" {:.1}%cpu", cpu));
+                }
+                if let Some(ref mem) = c.mem_usage {
+                    s.push_str(&format!(" {}", mem));
+                }
+                s
             })
             .collect();
-        parts.push(format!("\u{1f433} {}", container_strs.join(", ")));
+        lines.push(format!("\u{1f433} {}", container_strs.join(" | ")));
     }
 
     // Teams
     if !data.teams.teams.is_empty() {
         let total_agents: usize = data.teams.teams.iter().map(|t| t.member_count).sum();
-        parts.push(format!(
+        lines.push(format!(
             "{}\u{1f465} team: {} agents{}",
             theme.cyan, total_agents, r
         ));
     }
 
-    parts.join("  ")
+    lines.join("\n")
 }
 
 /// Shorten a path for display (replace home with ~).

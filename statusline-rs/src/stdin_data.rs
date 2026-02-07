@@ -19,6 +19,14 @@ pub struct StdinData {
     pub cost: Option<CostInfo>,
     #[serde(default)]
     pub context_window: Option<ContextWindowInfo>,
+    #[serde(default)]
+    pub agent: Option<AgentInfo>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct AgentInfo {
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

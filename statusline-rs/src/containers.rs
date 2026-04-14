@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::process::Command;
 
 use crate::cache::Cache;
+use crate::config::ContainersConfig;
 
 /// Docker container status.
 #[derive(Debug, Default)]
@@ -18,10 +19,14 @@ pub struct Container {
     pub mem_usage: Option<String>, // e.g., "12.5MiB / 7.67GiB"
 }
 
-/// Collect information about ALL Docker containers (running + stopped).
+/// Collect information about Docker containers with user-based filtering.
 /// Uses caching (30s TTL) to avoid slow Docker calls on every refresh.
 /// For running containers, also fetches CPU and memory stats.
-pub fn collect() -> ContainerInfo {
+pub fn collect(config: &ContainersConfig) -> ContainerInfo {
+    if !config.enabled {
+        return ContainerInfo::default();
+    }
+
     let cache = Cache::new();
 
     // Check cache first (30 second TTL)
@@ -31,13 +36,12 @@ pub fn collect() -> ContainerInfo {
         }
     }
 
-    // Cache miss — fetch fresh data
-    let info = collect_fresh(&cache);
-    info
+    // Cache miss — fetch fresh data and apply filters
+    collect_fresh(config, &cache)
 }
 
-/// Fetch fresh Docker container data and cache it.
-fn collect_fresh(cache: &Cache) -> ContainerInfo {
+/// Fetch fresh Docker container data, apply filters, and cache it.
+fn collect_fresh(config: &ContainersConfig, cache: &Cache) -> ContainerInfo {
     let mut info = ContainerInfo::default();
 
     // Step 1: Get ALL containers (running + stopped)
@@ -54,6 +58,7 @@ fn collect_fresh(cache: &Cache) -> ContainerInfo {
     }
 
     let stdout = String::from_utf8_lossy(&ps_output.stdout);
+    let username = std::env::var("USER").unwrap_or_default().to_lowercase();
     let mut running_containers = Vec::new();
 
     // Parse container list
@@ -64,6 +69,34 @@ fn collect_fresh(cache: &Cache) -> ContainerInfo {
             let raw_status = parts[1];
             let status = simplify_status(raw_status);
             let image = parts[2].to_string();
+            let name_lower = name.to_lowercase();
+
+            // Filter: by username in container name
+            if config.filter_by_user && !username.is_empty() && !name_lower.contains(&username) {
+                continue;
+            }
+
+            // Filter: include list (if non-empty, container name must match one)
+            if !config.include_names.is_empty() {
+                let matches = config.include_names.iter().any(|pat| {
+                    name_lower.contains(&pat.to_lowercase())
+                });
+                if !matches {
+                    continue;
+                }
+            }
+
+            // Filter: exclude list
+            if config.exclude_names.iter().any(|pat| {
+                name_lower.contains(&pat.to_lowercase())
+            }) {
+                continue;
+            }
+
+            // Filter: hide exited containers when show_exited = false
+            if !config.show_exited && status == "exited" {
+                continue;
+            }
 
             // Track running containers for stats collection
             if status == "running" {
@@ -93,7 +126,7 @@ fn collect_fresh(cache: &Cache) -> ContainerInfo {
         }
     }
 
-    // Cache the result as serialized JSON-like format
+    // Cache the filtered result
     let cached_output = serialize_container_info(&info);
     cache.set("docker_containers", &cached_output);
 

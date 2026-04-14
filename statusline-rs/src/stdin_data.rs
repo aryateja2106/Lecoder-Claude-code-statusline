@@ -8,6 +8,8 @@ pub struct StdinData {
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
+    pub session_name: Option<String>,
+    #[serde(default)]
     pub transcript_path: Option<String>,
     #[serde(default)]
     pub model: Option<ModelInfo>,
@@ -21,10 +23,44 @@ pub struct StdinData {
     pub context_window: Option<ContextWindowInfo>,
     #[serde(default)]
     pub agent: Option<AgentInfo>,
+    #[serde(default)]
+    pub vim: Option<VimInfo>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeSessionInfo>,
+    #[serde(default)]
+    pub output_style: Option<OutputStyleInfo>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 pub struct AgentInfo {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "type", default)]
+    pub agent_type: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct VimInfo {
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct WorktreeSessionInfo {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub original_cwd: Option<String>,
+    #[serde(default)]
+    pub original_branch: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct OutputStyleInfo {
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -71,6 +107,21 @@ pub struct ContextWindowInfo {
     pub used_percentage: Option<f64>,
     #[serde(default)]
     pub remaining_percentage: Option<f64>,
+    #[serde(default)]
+    pub current_usage: Option<CurrentUsage>,
+}
+
+/// Token counts from the most recent API call — reflects actual context window state.
+#[derive(Debug, Default, Deserialize)]
+pub struct CurrentUsage {
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
 }
 
 /// Read and parse JSON from stdin. Claude Code pipes session data here.

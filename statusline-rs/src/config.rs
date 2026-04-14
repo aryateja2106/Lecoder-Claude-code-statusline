@@ -25,6 +25,12 @@ pub struct Config {
     pub usage_limits: UsageLimitsConfig,
     #[serde(default)]
     pub session_info: SessionInfoConfig,
+    #[serde(default)]
+    pub containers: ContainersConfig,
+    #[serde(default)]
+    pub countdown: CountdownConfig,
+    #[serde(default)]
+    pub vault: crate::vault::VaultConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +75,8 @@ pub struct FeaturesConfig {
     pub show_submodules: bool,
     #[serde(default)]
     pub show_prayer_times: bool,
+    #[serde(default = "bool_true")]
+    pub show_projects: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,6 +167,8 @@ pub struct ContextWindowConfig {
     pub warn_threshold: u8,
     #[serde(default = "default_critical_threshold")]
     pub critical_threshold: u8,
+    #[serde(default = "default_ctx_display_style")]
+    pub display_style: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +191,30 @@ pub struct SessionInfoConfig {
     pub show_project: bool,
     #[serde(default = "default_id_length")]
     pub id_length: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContainersConfig {
+    #[serde(default = "bool_true")]
+    pub enabled: bool,
+    #[serde(default = "bool_true")]
+    pub filter_by_user: bool,
+    #[serde(default)]
+    pub show_exited: bool,
+    #[serde(default)]
+    pub include_names: Vec<String>,
+    #[serde(default)]
+    pub exclude_names: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CountdownConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub deadline: String,
 }
 
 // Default value functions
@@ -208,6 +242,7 @@ fn default_usage_critical() -> u8 { 80 }
 fn default_limit_label() -> String { "Limit:".into() }
 fn default_cache_ttl() -> u64 { 300 }
 fn default_id_length() -> usize { 8 }
+fn default_ctx_display_style() -> String { "bar".into() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -222,6 +257,9 @@ impl Default for Config {
             context_window: ContextWindowConfig::default(),
             usage_limits: UsageLimitsConfig::default(),
             session_info: SessionInfoConfig::default(),
+            containers: ContainersConfig::default(),
+            countdown: CountdownConfig::default(),
+            vault: crate::vault::VaultConfig::default(),
         }
     }
 }
@@ -249,6 +287,7 @@ impl Default for FeaturesConfig {
             show_reset_info: false,
             show_submodules: false,
             show_prayer_times: false,
+            show_projects: true,
         }
     }
 }
@@ -314,6 +353,7 @@ impl Default for ContextWindowConfig {
             show_tokens: true,
             warn_threshold: 50,
             critical_threshold: 90,
+            display_style: default_ctx_display_style(),
         }
     }
 }
@@ -335,6 +375,28 @@ impl Default for SessionInfoConfig {
             show_id: true,
             show_project: true,
             id_length: 8,
+        }
+    }
+}
+
+impl Default for ContainersConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            filter_by_user: true,
+            show_exited: false,
+            include_names: Vec::new(),
+            exclude_names: Vec::new(),
+        }
+    }
+}
+
+impl Default for CountdownConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            label: String::new(),
+            deadline: String::new(),
         }
     }
 }

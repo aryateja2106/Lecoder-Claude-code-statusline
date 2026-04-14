@@ -7,6 +7,11 @@ pub struct Cache {
 }
 
 impl Cache {
+    /// Get the cache directory path.
+    pub fn dir(&self) -> &std::path::Path {
+        &self.dir
+    }
+
     pub fn new() -> Self {
         let dir = if let Some(home) = dirs::home_dir() {
             home.join(".cache/statusline-rs")

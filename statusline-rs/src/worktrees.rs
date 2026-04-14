@@ -5,10 +5,13 @@ use std::path::Path;
 #[derive(Debug, Default)]
 pub struct WorktreeInfo {
     pub worktrees: Vec<Worktree>,
+    pub current: Option<Worktree>,
+    pub main_worktree: Option<Worktree>,
+    pub total_count: usize,
 }
 
 /// Represents a single git worktree with detailed information.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Worktree {
     pub name: String,           // e.g., "mconnect-mcp-integration"
     pub branch: Option<String>, // e.g., "feat/container-mcp-integration"
@@ -18,10 +21,9 @@ pub struct Worktree {
 
 /// List git worktrees for the repository at `cwd`.
 ///
-/// This function collects information about all linked worktrees in the repository.
-/// Note: The main worktree is NOT included in this list, as it's already displayed
-/// in the primary statusline. This only returns linked worktrees created via
-/// `git worktree add`.
+/// Collects all linked worktrees and identifies which one (or main) matches `cwd`.
+/// The `current` field holds whichever worktree the user is currently inside.
+/// `total_count` includes the main worktree + all linked worktrees.
 pub fn collect(cwd: &Path) -> WorktreeInfo {
     let mut info = WorktreeInfo::default();
 
@@ -30,36 +32,75 @@ pub fn collect(cwd: &Path) -> WorktreeInfo {
         Err(_) => return info,
     };
 
-    let worktree_names = match repo.worktrees() {
-        Ok(wt) => wt,
-        Err(_) => return info,
+    // Main worktree
+    let main_dir = match repo.workdir() {
+        Some(p) => p.to_path_buf(),
+        None => return info, // bare repo
     };
+    let main_branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(|s| s.to_string()));
 
-    for name_opt in worktree_names.iter() {
-        if let Some(name) = name_opt {
-            // Get the worktree object to access its path
-            let worktree = match repo.find_worktree(name) {
-                Ok(wt) => wt,
-                Err(_) => continue,
-            };
+    // Collect linked worktrees with raw paths (before shortening) for cwd matching
+    let mut linked_raw: Vec<(String, Option<String>, std::path::PathBuf)> = Vec::new();
 
-            // Get the worktree path
-            let wt_path = worktree.path();
-            let path_str = wt_path.to_string_lossy().to_string();
-            let shortened_path = shorten_path(&path_str);
-
-            // Get the branch name for this worktree
-            let branch = get_worktree_branch(&repo, name);
-
-            // All worktrees from repo.worktrees() are linked worktrees, not the main one
-            info.worktrees.push(Worktree {
-                name: name.to_string(),
-                branch,
-                path: shortened_path,
-                is_main: false,
-            });
+    if let Ok(worktree_names) = repo.worktrees() {
+        for name_opt in worktree_names.iter() {
+            if let Some(name) = name_opt {
+                if let Ok(wt) = repo.find_worktree(name) {
+                    let wt_path = wt.path().to_path_buf();
+                    let branch = get_worktree_branch(&repo, name);
+                    linked_raw.push((name.to_string(), branch, wt_path));
+                }
+            }
         }
     }
+
+    info.total_count = 1 + linked_raw.len();
+
+    // Only populate if there are linked worktrees (otherwise nothing to show)
+    if linked_raw.is_empty() {
+        return info;
+    }
+
+    // Determine current worktree — check linked first (more specific paths)
+    for (name, branch, raw_path) in &linked_raw {
+        if cwd.starts_with(raw_path) {
+            info.current = Some(Worktree {
+                name: name.clone(),
+                branch: branch.clone(),
+                path: shorten_path(&raw_path.to_string_lossy()),
+                is_main: false,
+            });
+            break;
+        }
+    }
+
+    // Always store main worktree info for display from linked worktrees
+    let main_wt = Worktree {
+        name: "main".to_string(),
+        branch: main_branch,
+        path: shorten_path(&main_dir.to_string_lossy()),
+        is_main: true,
+    };
+    info.main_worktree = Some(main_wt.clone());
+
+    // If not in a linked worktree, must be in main
+    if info.current.is_none() && cwd.starts_with(&main_dir) {
+        info.current = Some(main_wt);
+    }
+
+    // Build linked worktrees list
+    info.worktrees = linked_raw
+        .into_iter()
+        .map(|(name, branch, raw_path)| Worktree {
+            name,
+            branch,
+            path: shorten_path(&raw_path.to_string_lossy()),
+            is_main: false,
+        })
+        .collect();
 
     info
 }

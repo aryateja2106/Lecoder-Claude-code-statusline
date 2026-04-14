@@ -13,6 +13,12 @@ pub struct SessionInfo {
     pub cc_version: String,
     /// Session ID
     pub session_id: Option<String>,
+    /// Human-readable session name (set via /rename)
+    pub session_name: Option<String>,
+    /// Vim mode if vim mode is active ("INSERT" | "NORMAL")
+    pub vim_mode: Option<String>,
+    /// Output style name (e.g. "default", "Explanatory")
+    pub output_style: Option<String>,
 }
 
 /// Extract session info from stdin data, with env var fallback.
@@ -39,6 +45,13 @@ pub fn from_stdin(data: &StdinData) -> SessionInfo {
     // CC version from stdin JSON
     info.cc_version = data.version.clone().unwrap_or_default();
     info.session_id = data.session_id.clone();
+    info.session_name = data.session_name.clone();
+
+    // Vim mode
+    info.vim_mode = data.vim.as_ref().and_then(|v| v.mode.clone());
+
+    // Output style
+    info.output_style = data.output_style.as_ref().and_then(|o| o.name.clone());
 
     // Fallback to env vars if stdin didn't provide model
     if info.model.is_empty() {
